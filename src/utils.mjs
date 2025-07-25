@@ -1,7 +1,8 @@
-const fs = require('fs-extra');
-const path = require('path');
+import fs from 'fs-extra';
+import path from 'path';
 
-const templateDir = path.join(__dirname, 'templates');
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const templateDir = path.join(__dirname, '../templates');
 
 async function copyTemplate(templateName, destPath) {
   const sourcePath = path.join(templateDir, templateName);
@@ -28,7 +29,5 @@ async function updatePackageJson(packageJsonPath, updates) {
   await fs.writeJson(packageJsonPath, packageJson, { spaces: 2 });
 }
 
-module.exports = {
-  copyTemplate,
-  updatePackageJson
-};
+export { copyTemplate, updatePackageJson };
+

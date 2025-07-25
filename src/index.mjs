@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-const inquirer = require('inquirer');
-const fs = require('fs-extra');
-const path = require('path');
-const replace = require('replace-in-file');
-const chalk = require('chalk');
-const { copyTemplate, updatePackageJson } = require('./utils');
+import inquirer from 'inquirer';
+import fs from 'fs-extra';
+import path from 'path';
+import replace from 'replace-in-file';
+import chalk from 'chalk';
+import { copyTemplate, updatePackageJson } from './utils.mjs';
+
+// ... 其余代码保持不变
 
 console.log(chalk.cyan.bold('\n🚀🚀 欢迎使用 YesImBot 扩展脚手架工具 🚀🚀🚀'));
 

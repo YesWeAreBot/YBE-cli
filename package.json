@@ -2,12 +2,12 @@
   "name": "create-yesimbot-extension",
   "version": "1.0.0",
   "description": "Scaffold tool for creating YesImBot extensions",
-  "main": "src/index.js",
+  "main": "src/index.mjs",
   "bin": {
-    "ybe": "./bin/ybe.js"
+    "ybe": "./bin/index.mjs"
   },
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.mjs"
   },
   "keywords": ["koishi", "yesimbot", "scaffold", "extension"],
   "author": "Your Name",
