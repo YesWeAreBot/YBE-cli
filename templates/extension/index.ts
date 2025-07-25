@@ -7,10 +7,10 @@ import { Extension, Tool } from "koishi-plugin-yesimbot/services";
     description: '{{description}}',
     version: '0.1.0',
 })
-export default class {{friendlyName.replace(/\s+/g, '')}}Extension {
+export default class {{ClassName}} {
     static readonly inject = ["database"];
     
-    constructor(public ctx: Context, public config: {{friendlyName.replace(/\s+/g, '')}}Config) {
+    constructor(public ctx: Context, public config: {{ClassName}}Config) {
         // 初始化逻辑
     }
     
@@ -27,10 +27,10 @@ export default class {{friendlyName.replace(/\s+/g, '')}}Extension {
     }
 }
 
-export interface {{friendlyName.replace(/\s+/g, '')}}Config {
+export interface {{ClassName}}Config {
     // 配置项定义
 }
 
-export const {{friendlyName.replace(/\s+/g, '')}}Config = Schema.object({
+export const {{ClassName}}Config = Schema.object({
     // 配置项 Schema
 });

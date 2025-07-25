@@ -12,6 +12,11 @@ async function copyTemplate(templateName, destPath) {
 async function updatePackageJson(packageJsonPath, updates) {
   let packageJson = await fs.readJson(packageJsonPath);
   
+  // 处理版本号占位符
+  if (packageJson.version === "{{version}}") {
+    packageJson.version = "0.1.0";
+  }
+  
   // Merge updates into package.json
   packageJson = {
     ...packageJson,
@@ -29,5 +34,7 @@ async function updatePackageJson(packageJsonPath, updates) {
   await fs.writeJson(packageJsonPath, packageJson, { spaces: 2 });
 }
 
-export { copyTemplate, updatePackageJson };
-
+export {
+  copyTemplate,
+  updatePackageJson
+};

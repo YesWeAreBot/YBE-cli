@@ -6,9 +6,9 @@ import replace from 'replace-in-file';
 import chalk from 'chalk';
 import { copyTemplate, updatePackageJson } from './utils.mjs';
 
-// ... 其余代码保持不变
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
 
-console.log(chalk.cyan.bold('\n🚀🚀 欢迎使用 YesImBot 扩展脚手架工具 🚀🚀🚀'));
+console.log(chalk.cyan.bold('\n🚀🚀🚀🚀 欢迎使用 YesImBot 扩展脚手架工具 🚀🚀🚀🚀🚀🚀🚀'));
 
 const questions = [
   {
@@ -65,11 +65,42 @@ inquirer.prompt(questions).then(async answers => {
     }
     
     fs.mkdirSync(projectPath);
-    console.log(chalk.green(`\n📁📁 创建项目目录: ${projectName}`));
+    console.log(chalk.green(`\n📁📁📁📁 创建项目目录: ${projectName}`));
     
     // 复制模板文件
     await copyTemplate('base', projectPath);
     await copyTemplate('extension', path.join(projectPath, 'src'));
+    
+    // 生成 PascalCase 类名 (首字母大写)
+    const className = answers.friendlyName
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join('');
+    
+    // 模板变量替换
+    const replaceOptions = {
+      files: [
+        path.join(projectPath, 'src/index.ts'),
+        path.join(projectPath, 'README.md'),
+        path.join(projectPath, 'package.json')
+      ],
+      from: [
+        /{{name}}/g,
+        /{{friendlyName}}/g,
+        /{{description}}/g,
+        /{{ClassName}}/g,
+        /{{fullPackageName}}/g
+      ],
+      to: [
+        answers.extensionName,
+        answers.friendlyName,
+        answers.description,
+        className,
+        fullPackageName
+      ]
+    };
+    
+    await replace.replaceInFile(replaceOptions);
     
     // 使用用户输入更新 package.json
     const packageJsonPath = path.join(projectPath, 'package.json');
@@ -91,13 +122,6 @@ inquirer.prompt(questions).then(async answers => {
       ]
     });
     
-    // 更新 README.md
-    await replace.replaceInFile({
-      files: path.join(projectPath, 'README.md'),
-      from: ['{{extensionName}}', '{{description}}'],
-      to: [answers.friendlyName, answers.description]
-    });
-    
     // 根据扩展类型更新 index.ts
     const indexPath = path.join(projectPath, 'src/index.ts');
     let indexContent = fs.readFileSync(indexPath, 'utf-8');
@@ -109,9 +133,10 @@ inquirer.prompt(questions).then(async answers => {
 import { AssetService } from 'koishi-plugin-yesimbot/services';`
       );
       
+      // 使用 PascalCase 类名
       indexContent = indexContent.replace(
-        /class \w+Extension/g,
-        `class ${answers.friendlyName.replace(/\s+/g, '')}Extension`
+        /class \w+/g,
+        `class ${className}`
       );
       
       indexContent += `
