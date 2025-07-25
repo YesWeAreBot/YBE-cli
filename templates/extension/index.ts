@@ -16,14 +16,14 @@ export default class {{friendlyName.replace(/\s+/g, '')}}Extension {
     
     @Tool({
         name: 'custom_tool',
-        description: 'A custom tool for your extension',
+        description: '自定义扩展工具',
         parameters: Schema.object({
-            param1: Schema.string().required().description('Parameter description')
+            param1: Schema.string().required().description('参数说明')
         })
     })
     async customTool({ param1 }: { param1: string }) {
         // 工具实现
-        return { result: `Processed ${param1}` };
+        return { result: `处理 ${param1}` };
     }
 }
 
