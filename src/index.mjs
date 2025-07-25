@@ -29,17 +29,6 @@ const questions = [
     message: '请输入扩展描述:'
   },
   {
-    type: 'list',
-    name: 'extensionType',
-    message: '请选择扩展类型:',
-    choices: [
-      '标准工具扩展',
-      '资源管理扩展',
-      'MCP 集成扩展'
-    ],
-    default: '标准工具扩展'
-  },
-  {
     type: 'confirm',
     name: 'confirmCreate',
     message: '确认使用以上设置创建扩展?',
@@ -117,44 +106,10 @@ inquirer.prompt(questions).then(async answers => {
       keywords: [
         "koishi",
         "plugin",
-        answers.extensionType.includes('资源') ? "resource" : "extension",
+        "extension",
         "yesimbot"
       ]
     });
-    
-    // 根据扩展类型更新 index.ts
-    const indexPath = path.join(projectPath, 'src/index.ts');
-    let indexContent = fs.readFileSync(indexPath, 'utf-8');
-    
-    if (answers.extensionType.includes('资源')) {
-      indexContent = indexContent.replace(
-        "import { Extension, Tool } from 'koishi-plugin-yesimbot/services';",
-        `import { Extension, Tool } from 'koishi-plugin-yesimbot/services';
-import { AssetService } from 'koishi-plugin-yesimbot/services';`
-      );
-      
-      // 使用 PascalCase 类名
-      indexContent = indexContent.replace(
-        /class \w+/g,
-        `class ${className}`
-      );
-      
-      indexContent += `
-  @Tool({
-    name: 'manage_resource',
-    description: '管理特定资源',
-    parameters: Schema.object({
-      resource_id: Schema.string().required().description('资源ID'),
-      action: Schema.union(['add', 'remove', 'update']).required().description('执行操作')
-    })
-  })
-  async manageResource({ resource_id, action }: { resource_id: string; action: string }) {
-    // 在此实现资源管理逻辑
-    return { status: 'success', message: \`资源 \${resource_id} \${action} 操作成功\` };
-  }`;
-    }
-    
-    fs.writeFileSync(indexPath, indexContent);
     
     console.log(chalk.green(`✅ 成功创建 "${answers.friendlyName}" 扩展!`));
     console.log(chalk.blue('\n后续步骤:'));

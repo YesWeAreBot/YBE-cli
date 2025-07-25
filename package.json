@@ -4,18 +4,34 @@
   "description": "Scaffold tool for creating YesImBot extensions",
   "main": "src/index.mjs",
   "bin": {
+    "create-yesimbot-extension": "./bin/index.mjs",
     "ybe": "./bin/index.mjs"
   },
   "scripts": {
-    "start": "node src/index.mjs"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["koishi", "yesimbot", "scaffold", "extension"],
-  "author": "Your Name",
+  "files": [
+    "bin",
+    "src",
+    "templates",
+    ".gitignore"
+  ],
+  "keywords": [
+    "koishi",
+    "yesimbot",
+    "scaffold",
+    "cli",
+    "extension"
+  ],
+  "author": "HydroGest <2445691453@qq.com>",
   "license": "MIT",
   "dependencies": {
     "chalk": "^4.1.2",
     "fs-extra": "^11.1.1",
     "inquirer": "^9.2.12",
     "replace-in-file": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }
