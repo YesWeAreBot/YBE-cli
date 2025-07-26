@@ -25,7 +25,7 @@ console.log(chalk.hex('#FF6B6B').bold(`
    ██║   ██████╔╝███████╗
    ╚═╝   ╚═════╝ ╚══════╝
                          
-YesImBot 扩展脚手架工具 v1.1.1
+YesImBot 扩展脚手架工具 v1.2.1
 `));
 
 // 添加命令行执行函数
@@ -205,6 +205,7 @@ async function downloadFile(url, outputPath) {
     }
 }
 
+
 // 自动构建核心包
 async function autoBuildCore(projectPath, packageManager) {
     console.log(chalk.hex('#FF6B6B').bold('\n🌍 检测到您在外部开发，需要构建 YesImBot 核心包'));
@@ -214,7 +215,7 @@ async function autoBuildCore(projectPath, packageManager) {
         // 1. 构建核心包
         console.log(chalk.hex('#4ECDC4').bold('\n🚧 步骤 1/3: 构建 YesImBot 核心包'));
         const buildResult = await buildYesImBot(packageManager);
-        console.log(chalk.green(`✅ 核心包构建成功! 位置: ${buildResult.corePath}, 版本: ${buildResult.version}`));
+        console.log(chalk.green(`✅ 核心包构建成功! TGZ 文件: ${buildResult.tgzPath}`));
         
         // 2. 进入项目目录
         console.log(chalk.hex('#4ECDC4').bold('\n📂 步骤 2/3: 进入项目目录并安装核心包'));
@@ -223,12 +224,12 @@ async function autoBuildCore(projectPath, packageManager) {
         // 3. 清理项目缓存
         cleanProjectCache(projectPath);
         
-        // 4. 安装核心包 - 使用用户选择的包管理器
+        // 4. 使用 tgz 文件安装核心包
         let installCmd;
         if (packageManager === 'yarn') {
-            installCmd = `yarn add koishi-plugin-yesimbot@file:${buildResult.corePath} --peer`;
+            installCmd = `yarn add ${buildResult.tgzPath} --peer`;
         } else {
-            installCmd = `bun add koishi-plugin-yesimbot@file:${buildResult.corePath} --peer --force`;
+            installCmd = `bun add ${buildResult.tgzPath} --peer --force`;
         }
         
         await runCommand(installCmd, { 
@@ -279,10 +280,11 @@ async function autoBuildCore(projectPath, packageManager) {
         console.log(`  2. 清理缓存: ${chalk.hex('#4ECDC4')('rm -rf node_modules')} ${packageManager === 'yarn' ? 'yarn.lock' : 'bun.lockb'}`);
         
         let manualInstallCmd;
+        // 提示用户使用手动构建的tgz文件
         if (packageManager === 'yarn') {
-            manualInstallCmd = `yarn add koishi-plugin-yesimbot@file:${path.join(os.homedir(), '.ybe-build/*/YesImBot-dev/packages/core')} --dev`;
+            manualInstallCmd = `yarn add /path/to/koishi-plugin-yesimbot.tgz --peer`;
         } else {
-            manualInstallCmd = `bun add koishi-plugin-yesimbot@file:${path.join(os.homedir(), '.ybe-build/*/YesImBot-dev/packages/core')} --dev --force`;
+            manualInstallCmd = `bun add /path/to/koishi-plugin-yesimbot.tgz --peer --force`;
         }
         
         console.log(`  3. 安装核心包: ${chalk.hex('#4ECDC4')(manualInstallCmd)}`);
@@ -297,9 +299,13 @@ async function autoBuildCore(projectPath, packageManager) {
         console.log(`  4. 安装依赖: ${chalk.hex('#4ECDC4')(manualDepsCmd)}`);
         console.log(`  5. 开始开发: ${chalk.hex('#4ECDC4')(devCommand)}\n`);
         
+        console.log(chalk.yellow('💡 提示: 核心包 tgz 文件可以在以下目录找到:'));
+        console.log(chalk.hex('#4ECDC4')(`  ${path.join(os.homedir(), '.ybe-build/*/YesImBot-dev/packages/core/*.tgz')}`));
+        
         return false;
     }
 }
+
 
 function isKoishiProject(cwd) {
   return fs.existsSync(path.join(cwd, 'koishi.yml')) || 
@@ -328,11 +334,11 @@ async function getUpdatePackages() {
 }
 
 async function installPackage(pkg, buildResult, packageManager) {
-  let packagePath, packageName;
+  let packageName, tgzPath;
   
   if (pkg === 'core') {
-    packagePath = buildResult.corePath;
     packageName = 'koishi-plugin-yesimbot';
+    tgzPath = buildResult.tgzPath; // 直接使用核心包的 tgz 路径
   } else if (pkg === 'all-extensions') {
     // 安装所有扩展
     const extensions = ['code-interpreter', 'code2image', 'favor', 'mcp', 'sticker-manager'];
@@ -341,13 +347,23 @@ async function installPackage(pkg, buildResult, packageManager) {
     }
     return;
   } else {
-    packagePath = path.join(buildResult.projectPath, 'packages', pkg);
     packageName = `koishi-plugin-yesimbot-extension-${pkg}`;
+    
+    // 查找扩展包的 tgz 文件
+    const extPath = path.join(buildResult.projectPath, 'packages', pkg);
+    const files = fs.readdirSync(extPath);
+    const tgzFile = files.find(f => f.endsWith('.tgz'));
+    
+    if (!tgzFile) {
+      throw new Error(`找不到 ${pkg} 扩展的 tgz 文件`);
+    }
+    
+    tgzPath = path.join(extPath, tgzFile);
   }
 
   const installCmd = packageManager === 'yarn' 
-    ? `yarn add ${packageName}@file:${packagePath}` 
-    : `bun add ${packageName}@file:${packagePath} --force`;
+    ? `yarn add ${tgzPath}` 
+    : `bun add ${tgzPath} --force`;
   
   await runCommand(installCmd, { 
     context: `安装 ${packageName}`
@@ -575,9 +591,51 @@ async function buildYesImBot(packageManager) {
         const corePackage = JSON.parse(fs.readFileSync(corePackageJsonPath, 'utf-8'));
         console.log(chalk.green(`✅ 核心包版本: ${corePackage.version}`));
         
-        // 返回核心包路径
+        // 打包核心包为 tgz
+        console.log(chalk.hex('#4ECDC4')('📦 打包核心包...'));
+        const corePackagePath = path.join(projectPath, 'packages/core');
+        const originalCwd = process.cwd(); // 保存当前工作目录
+        process.chdir(corePackagePath);
+        
+        // 执行打包命令
+        if (packageManager === 'yarn') {
+            await runCommand('yarn pack', { hideOutput: true });
+        } else {
+            await runCommand('bun pm pack', { hideOutput: true });
+        }
+        
+        // 查找生成的 tgz 文件（兼容 Bun 和 Yarn 的命名格式）
+        const tgz_files = fs.readdirSync(corePackagePath);
+        const tgzFiles = tgz_files.filter(file => 
+            file.endsWith('.tgz') && 
+            file.includes(corePackage.name.replace('/', '-'))
+        );
+        
+        if (tgzFiles.length === 0) {
+            // 如果找不到，尝试更宽松的匹配
+            const allTgzFiles = tgz_files.filter(file => file.endsWith('.tgz'));
+            if (allTgzFiles.length > 0) {
+                tgzFiles.push(allTgzFiles[0]);
+            } else {
+                throw new Error(`找不到任何 tgz 文件`);
+            }
+        }
+        
+        // 选择最新或唯一的 tgz 文件
+        const tgzFilename = tgzFiles[0];
+        const tgzPath = path.join(corePackagePath, tgzFilename);
+        
+        if (!fs.existsSync(tgzPath)) {
+            throw new Error(`打包后找不到 tgz 文件: ${tgzFilename}`);
+        }
+        
+        console.log(chalk.green(`✅ 核心包打包完成: ${tgzPath}`));
+        process.chdir(originalCwd); // 恢复原始工作目录
+        
+        // 返回核心包路径和 tgz 文件路径
         return {
-            corePath: path.join(projectPath, 'packages/core'),
+            corePath: corePackagePath,
+            tgzPath: tgzPath,
             projectPath: projectPath,
             version: corePackage.version
         };
@@ -595,6 +653,7 @@ async function buildYesImBot(packageManager) {
         console.log(chalk.hex('#4ECDC4')(`   unzip ${zipPath} -d ${tempDir}`));
         console.log(chalk.hex('#4ECDC4')(`   cd ${tempDir}/YesImBot-dev`));
         console.log(chalk.hex('#4ECDC4')(`   ${packageManager || 'yarn'} install --ignore-engines && ${packageManager || 'yarn'} run build`));
+        console.log(chalk.hex('#4ECDC4')(`   cd packages/core && ${packageManager || 'yarn'} pack`));
         
         throw error;
     }
@@ -652,6 +711,50 @@ async function updateCommand() {
   try {
     buildResult = await buildYesImBot(packageManager);
     console.log(chalk.green(`✅ YesImBot 构建成功! 版本: ${buildResult.version}`));
+    
+    // 打包所有扩展包
+    console.log(chalk.hex('#4ECDC4').bold('\n📦 打包扩展包...'));
+    const extensions = ['code-interpreter', 'code2image', 'favor', 'mcp', 'sticker-manager'];
+    const originalCwd = process.cwd();
+    
+    for (const ext of extensions) {
+      const extPath = path.join(buildResult.projectPath, 'packages', ext);
+      
+      // 确保目录存在
+      if (!fs.existsSync(extPath)) {
+        console.log(chalk.yellow(`⚠️ 跳过 ${ext} 扩展 (目录不存在)`));
+        continue;
+      }
+      
+      // 进入扩展包目录
+      process.chdir(extPath);
+      
+      // 打包扩展包
+      try {
+        console.log(chalk.hex('#4ECDC4')(`  打包 ${ext} 扩展...`));
+        
+        if (packageManager === 'yarn') {
+          await runCommand('yarn pack', { hideOutput: true });
+        } else {
+          await runCommand('bun pm pack', { hideOutput: true });
+        }
+        
+        // 验证打包文件存在
+        const files = fs.readdirSync(extPath);
+        const tgzFile = files.find(f => f.endsWith('.tgz'));
+        
+        if (!tgzFile) {
+          throw new Error('打包后找不到 tgz 文件');
+        }
+        
+        console.log(chalk.green(`  ✅ ${ext} 打包完成: ${tgzFile}`));
+      } catch (packError) {
+        console.error(chalk.red(`❌ ${ext} 扩展打包失败:`), packError.message);
+      }
+    }
+    
+    // 恢复原始工作目录
+    process.chdir(originalCwd);
   } catch (error) {
     console.error(chalk.red('\n❌ YesImBot 构建失败:'), error);
     return;
