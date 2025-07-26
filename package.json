@@ -26,7 +26,6 @@
   "author": "HydroGest <2445691453@qq.com>",
   "license": "MIT",
   "dependencies": {
-    "-": "^0.0.1",
     "adm-zip": "^0.5.16",
     "chalk": "^4.1.2",
     "fs-extra": "^11.1.1",
