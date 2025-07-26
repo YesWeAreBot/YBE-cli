@@ -71,7 +71,7 @@ async function ensureBunInstalled() {
                 console.log(chalk.green(`✅ Bun 安装成功! 版本: ${stdout.trim()}`));
                 return true;
             } catch (npmError) {
-                console.log(chalk.yellow('  npm 安装失败，尝试使用官方安装脚本...'));
+                console.log(chalk.red('  npm 安装失败，请尝试使用 `sudo ybe`。尝试使用官方安装脚本，可能较慢...'));
             }
             
             // 回退到官方安装脚本
@@ -203,7 +203,7 @@ async function buildYesImBot() {
         console.log(chalk.hex('#4ECDC4')('⬇️  正在下载 YesImBot dev 分支...'));
         
         // 提供中国大陆可用的镜像
-        const mirrorUrl = process.env.YBE_MIRROR || 'https://github.com';
+        const mirrorUrl = process.env.YBE_MIRROR || 'https://github.akams.cn/https://github.com';
         repoUrl = `${mirrorUrl}/YesWeAreBot/YesImBot/archive/refs/heads/dev.zip`;
         
         // 下载文件
