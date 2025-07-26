@@ -213,8 +213,8 @@ async function autoBuildCore(projectPath, packageManager) {
     try {
         // 1. 构建核心包
         console.log(chalk.hex('#4ECDC4').bold('\n🚧 步骤 1/3: 构建 YesImBot 核心包'));
-        const { path: corePath, version } = await buildYesImBot(packageManager);
-        console.log(chalk.green(`✅ 核心包构建成功! 位置: ${corePath}, 版本: ${version}`));
+        const buildResult = await buildYesImBot(packageManager);
+        console.log(chalk.green(`✅ 核心包构建成功! 位置: ${buildResult.corePath}, 版本: ${buildResult.version}`));
         
         // 2. 进入项目目录
         console.log(chalk.hex('#4ECDC4').bold('\n📂 步骤 2/3: 进入项目目录并安装核心包'));
@@ -226,9 +226,9 @@ async function autoBuildCore(projectPath, packageManager) {
         // 4. 安装核心包 - 使用用户选择的包管理器
         let installCmd;
         if (packageManager === 'yarn') {
-            installCmd = `yarn add koishi-plugin-yesimbot@file:${corePath} --peer`;
+            installCmd = `yarn add koishi-plugin-yesimbot@file:${buildResult.corePath} --peer`;
         } else {
-            installCmd = `bun add koishi-plugin-yesimbot@file:${corePath} --peer --force`;
+            installCmd = `bun add koishi-plugin-yesimbot@file:${buildResult.corePath} --peer --force`;
         }
         
         await runCommand(installCmd, { 
@@ -271,6 +271,9 @@ async function autoBuildCore(projectPath, packageManager) {
         console.error(chalk.red('\n❌❌ 自动构建过程中出错:'));
         console.error(buildError);
         
+        // 定义 devCommand 用于错误提示
+        const devCommand = packageManager === 'yarn' ? 'yarn dev' : 'bun dev';
+        
         console.log(chalk.hex('#FF6B6B').bold('\n🛠️ 请尝试手动完成以下步骤:'));
         console.log(`  1. 进入项目目录: ${chalk.hex('#4ECDC4')(`cd ${path.basename(projectPath)}`)}`);
         console.log(`  2. 清理缓存: ${chalk.hex('#4ECDC4')('rm -rf node_modules')} ${packageManager === 'yarn' ? 'yarn.lock' : 'bun.lockb'}`);
@@ -292,11 +295,65 @@ async function autoBuildCore(projectPath, packageManager) {
         }
         
         console.log(`  4. 安装依赖: ${chalk.hex('#4ECDC4')(manualDepsCmd)}`);
-        console.log(`  5. 开始开发: ${chalk.hex('#4ECDC4')(devCommand || 'bun dev')}\n`);
+        console.log(`  5. 开始开发: ${chalk.hex('#4ECDC4')(devCommand)}\n`);
         
         return false;
     }
 }
+
+function isKoishiProject(cwd) {
+  return fs.existsSync(path.join(cwd, 'koishi.yml')) || 
+         fs.existsSync(path.join(cwd, 'koishi.yaml')) ||
+         fs.existsSync(path.join(cwd, 'node_modules/koishi'));
+}
+
+async function getUpdatePackages() {
+  const { packages } = await inquirer.prompt([
+    {
+      type: 'checkbox',
+      name: 'packages',
+      message: '选择要更新的包:',
+      choices: [
+        { name: '核心包 (koishi-plugin-yesimbot)', value: 'core' },
+        { name: '代码执行器扩展', value: 'code-interpreter' },
+        { name: '代码转图片扩展', value: 'code2image' },
+        { name: '好感度扩展', value: 'favor' },
+        { name: 'MCP 扩展', value: 'mcp' },
+        { name: '表情包管理扩展', value: 'sticker-manager' },
+        { name: '所有扩展包', value: 'all-extensions' }
+      ]
+    }
+  ]);
+  return packages;
+}
+
+async function installPackage(pkg, buildResult, packageManager) {
+  let packagePath, packageName;
+  
+  if (pkg === 'core') {
+    packagePath = buildResult.corePath;
+    packageName = 'koishi-plugin-yesimbot';
+  } else if (pkg === 'all-extensions') {
+    // 安装所有扩展
+    const extensions = ['code-interpreter', 'code2image', 'favor', 'mcp', 'sticker-manager'];
+    for (const ext of extensions) {
+      await installPackage(ext, buildResult, packageManager);
+    }
+    return;
+  } else {
+    packagePath = path.join(buildResult.projectPath, 'packages', pkg);
+    packageName = `koishi-plugin-yesimbot-extension-${pkg}`;
+  }
+
+  const installCmd = packageManager === 'yarn' 
+    ? `yarn add ${packageName}@file:${packagePath}` 
+    : `bun add ${packageName}@file:${packagePath} --force`;
+  
+  await runCommand(installCmd, { 
+    context: `安装 ${packageName}`
+  });
+}
+
 
 // 清理项目缓存
 function cleanProjectCache(projectPath) {
@@ -520,7 +577,8 @@ async function buildYesImBot(packageManager) {
         
         // 返回核心包路径
         return {
-            path: path.join(projectPath, 'packages/core'),
+            corePath: path.join(projectPath, 'packages/core'),
+            projectPath: projectPath,
             version: corePackage.version
         };
     } catch (error) {
@@ -567,16 +625,91 @@ function checkProjectLocation(projectPath) {
     };
 }
 
-// 主函数
-async function main() {
-    // 检查包管理器是否安装
-    const packageManager = await ensurePackageManagersInstalled();
-    if (!packageManager) {
-        console.log(chalk.red('❌❌ 没有可用的包管理器，无法继续操作'));
-        return;
+async function updateCommand() {
+  // 检查包管理器
+  const packageManager = await ensurePackageManagersInstalled();
+  if (!packageManager) {
+    console.log(chalk.red('❌ 没有可用的包管理器，无法继续操作'));
+    return;
+  }
+
+  // 检查当前目录是否是 Koishi 项目
+  if (!isKoishiProject(process.cwd())) {
+    console.log(chalk.red('❌ 当前目录不是 Koishi 项目！请在 Koishi 项目根目录运行此命令'));
+    return;
+  }
+
+  // 获取要更新的包列表
+  const packagesToUpdate = await getUpdatePackages();
+  if (packagesToUpdate.length === 0) {
+    console.log(chalk.yellow('⚠️ 未选择任何包，操作取消'));
+    return;
+  }
+
+  // 构建 YesImBot 项目
+  console.log(chalk.hex('#FF6B6B').bold('\n🔧 开始构建 YesImBot 项目...'));
+  let buildResult;
+  try {
+    buildResult = await buildYesImBot(packageManager);
+    console.log(chalk.green(`✅ YesImBot 构建成功! 版本: ${buildResult.version}`));
+  } catch (error) {
+    console.error(chalk.red('\n❌ YesImBot 构建失败:'), error);
+    return;
+  }
+
+  // 安装选定的包
+  for (const pkg of packagesToUpdate) {
+    try {
+      await installPackage(pkg, buildResult, packageManager);
+      console.log(chalk.green(`✅ ${pkg} 安装成功!`));
+    } catch (error) {
+      console.error(chalk.red(`❌ 安装 ${pkg} 失败: `), error.message);
     }
-    
-    // 如果使用的是Yarn，提示用户
+  }
+
+  console.log(chalk.hex('#06D6A0').bold('\n🎉 更新完成!'));
+  console.log(chalk.hex('#118AB2')('请重启 Koishi 服务使更改生效\n'));
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const command = args[0] || 'help';
+
+  try {
+    if (command === 'create') {
+      // 原有创建扩展逻辑
+      await createCommand();
+    } else if (command === 'update') {
+      await updateCommand();
+    } else {
+      // 显示帮助信息
+      console.log(chalk.hex('#FF6B6B').bold('\nYesImBot 扩展工具 v1.2.0'));
+      console.log(chalk.hex('#4ECDC4')('可用命令:'));
+      console.log('  create - 创建新扩展');
+      console.log('  update - 更新/安装 YesImBot 包\n');
+      console.log(chalk.hex('#118AB2')('示例:'));
+      console.log('  ybe create     创建新扩展');
+      console.log('  ybe update     更新 YesImBot 包');
+      console.log('  ybe            显示帮助信息\n');
+    }
+  } catch (error) {
+    console.error(chalk.red('❌ 操作失败:'), error.message);
+    process.exit(1);
+  }
+}
+
+async function createCommand() {
+  // 这是原有 main 函数中创建扩展的逻辑
+  // 需要将原来 main 函数中创建扩展的代码剪切到这里
+  
+  // 检查包管理器是否安装
+  const packageManager = await ensurePackageManagersInstalled();
+  if (!packageManager) {
+    console.log(chalk.red('❌❌❌❌ 没有可用的包管理器，无法继续操作'));
+    return;
+  }
+  
+     // 如果使用的是Yarn，提示用户
     if (packageManager === 'yarn') {
         console.log(chalk.hex('#4ECDC4').bold('🎯 将使用 Yarn 作为包管理器'));
     } else {
@@ -587,7 +720,7 @@ async function main() {
         {
             type: 'input',
             name: 'extensionName',
-            message: chalk.hex('#FFD166')('请输入扩展名称 (kebab-case 格式):'),
+            message: chalk.hex('#FFD166')('请输入扩展名称 (kebab-case 格式:'),
             validate: input => /^[a-z0-9-]+$/.test(input) || '名称必须使用 kebab-case 格式 (小写字母、数字、连字符)'
         },
         {
