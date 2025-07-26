@@ -10,6 +10,7 @@ import { promisify } from 'util';
 import os from 'os';
 import axios from 'axios';
 import AdmZip from 'adm-zip';
+import ora from 'ora';
 
 // 正确获取 __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -24,95 +25,112 @@ console.log(chalk.hex('#FF6B6B').bold(`
    ██║   ██████╔╝███████╗
    ╚═╝   ╚═════╝ ╚══════╝
                          
-YesImBot 扩展脚手架工具 v1.1.0
+YesImBot 扩展脚手架工具 v1.1.1
 `));
 
-// 检查 Bun 是否安装并自动安装
-async function ensureBunInstalled() {
+// 添加命令行执行函数
+async function runCommand(command, options = {}) {
+    const { cwd, hideOutput = true, context = "执行命令" } = options;
+    const spinner = ora().start(chalk.hex('#4ECDC4')(`${context}: ${command}`));
+    
+    try {
+        const result = await execAsync(command, { 
+            stdio: hideOutput ? 'pipe' : 'inherit',
+            cwd,
+            env: {
+                ...process.env,
+                FORCE_COLOR: '1',
+                NO_UPDATE_NOTIFIER: '1'
+            }
+        });
+        
+        spinner.succeed(chalk.green(`${context}成功!`));
+        return result;
+    } catch (error) {
+        spinner.fail(chalk.red(`${context}失败!`));
+        if (hideOutput && (error.stderr || error.stdout)) {
+            console.error(chalk.red('错误详情:'));
+            console.error(error.stderr || error.stdout);
+        } else if (error.message) {
+            console.error(chalk.red('错误信息:'), error.message);
+        }
+        throw error;
+    }
+}
+
+// 检查包管理器是否安装
+async function ensurePackageManagersInstalled() {
+    let bunInstalled = false;
+    let yarnInstalled = false;
+    
+    // 检查 Bun 是否安装
     try {
         await execAsync('bun --version');
+        bunInstalled = true;
         console.log(chalk.green('✅ Bun 已安装'));
-        return true;
     } catch (error) {
         console.log(chalk.yellow('⚠️ 未检测到 Bun 包管理工具'));
-        
-        // 询问用户是否自动安装
+    }
+    
+    // 检查 Yarn 是否安装
+    try {
+        await execAsync('yarn --version');
+        yarnInstalled = true;
+        console.log(chalk.green('✅ Yarn 已安装'));
+    } catch (error) {
+        console.log(chalk.yellow('⚠️ 未检测到 Yarn 包管理工具'));
+    }
+    
+    // 如果两个包管理器都可用，让用户选择
+    if (bunInstalled && yarnInstalled) {
         const answer = await inquirer.prompt([
             {
-                type: 'confirm',
-                name: 'installBun',
-                message: '是否要自动安装 Bun?',
-                default: true
+                type: 'list',
+                name: 'packageManager',
+                message: '请选择要使用的包管理器:',
+                choices: [
+                    { name: 'Bun (推荐)', value: 'bun' },
+                    { name: 'Yarn', value: 'yarn' },                
+                ],
+                default: 'bun'
             }
         ]);
-        
-        if (!answer.installBun) {
-            console.log(chalk.red('请手动安装 Bun: https://bun.sh'));
-            return false;
+        return answer.packageManager;
+    }
+    
+    // 如果只有Yarn可用
+    if (yarnInstalled) return 'yarn';
+    
+    // 如果只有Bun可用
+    if (bunInstalled) return 'bun';
+    
+    // 两个包管理器都不可用，询问是否安装Bun
+    console.log(chalk.yellow('⚠️ 未检测到任何包管理工具'));
+    const answer = await inquirer.prompt([
+        {
+            type: 'confirm',
+            name: 'installBun',
+            message: '是否要自动安装 Bun (推荐)?',
+            default: true
         }
-        
-        // 尝试安装 Bun
-        console.log(chalk.hex('#4ECDC4')('⬇⬇️  正在安装 Bun...'));
-        console.log(chalk.hex('#FFD166')('这可能需要几分钟时间，请耐心等待...'));
-        
-        try {
-            // 优先使用 npm 安装
-            console.log(chalk.hex('#F7B801')('  尝试使用 npm 安装...'));
-            try {
-                // 检查 npm 是否可用
-                await execAsync('npm --version');
-                
-                // 使用 npm 安装 Bun
-                console.log(chalk.hex('#F7B801')('  使用 npm 安装 Bun...'));
-                await execAsync('npm install -g bun');
-                
-                // 验证安装
-                console.log(chalk.hex('#F7B801')('  验证安装...'));
-                const { stdout } = await execAsync('bun --version');
-                console.log(chalk.green(`✅ Bun 安装成功! 版本: ${stdout.trim()}`));
-                return true;
-            } catch (npmError) {
-                console.log(chalk.red('  npm 安装失败，请尝试使用 `sudo ybe`。尝试使用官方安装脚本，可能较慢...'));
-            }
-            
-            // 回退到官方安装脚本
-            console.log(chalk.hex('#F7B801')('  使用官方安装脚本...'));
-            await execAsync('curl -fsSL https://bun.sh/install | bash');
-            
-            // 更新 PATH 环境变量
-            console.log(chalk.hex('#F7B801')('  更新环境变量...'));
-            if (process.env.SHELL?.includes('zsh')) {
-                await execAsync('echo \'export BUN_INSTALL="$HOME/.bun"\' >> ~/.zshrc');
-                await execAsync('echo \'export PATH="$BUN_INSTALL/bin:$PATH"\' >> ~/.zshrc');
-                await execAsync('source ~/.zshrc');
-            } else {
-                await execAsync('echo \'export BUN_INSTALL="$HOME/.bun"\' >> ~/.bashrc');
-                await execAsync('echo \'export PATH="$BUN_INSTALL/bin:$PATH"\' >> ~/.bashrc');
-                await execAsync('source ~/.bashrc');
-            }
-            
-            // 验证安装
-            console.log(chalk.hex('#F7B801')('  验证安装...'));
-            const { stdout } = await execAsync('bun --version');
-            console.log(chalk.green(`✅ Bun 安装成功! 版本: ${stdout.trim()}`));
-            
-            return true;
-        } catch (installError) {
-            console.error(chalk.red('❌❌ Bun 安装失败:'), installError);
-            
-            // 提供详细的安装指南
-            console.log(chalk.yellow('\n请尝试手动安装:'));
-            console.log('  1. 使用 npm:');
-            console.log(chalk.hex('#4ECDC4')('     npm install -g bun'));
-            console.log('  2. 使用 curl:');
-            console.log(chalk.hex('#4ECDC4')('     curl -fsSL https://bun.sh/install | bash'));
-            console.log('  3. 使用 Homebrew:');
-            console.log(chalk.hex('#4ECDC4')('     brew tap oven-sh/bun'));
-            console.log(chalk.hex('#4ECDC4')('     brew install bun'));
-            console.log('  4. 官方文档: https://bun.sh/docs/installation');
-            
-            return false;
-        }
+    ]);
+    
+    if (!answer.installBun) {
+        console.log(chalk.red('请手动安装 Yarn 或 Bun'));
+        console.log('  Yarn: https://classic.yarnpkg.com/en/docs/install');
+        console.log('  Bun: https://bun.sh');
+        return null;
+    }
+    
+    // 尝试安装Bun
+    try {
+        const spinner = ora().start(chalk.hex('#F7B801')('使用 npm 安装 Bun...'));
+        await execAsync('npm install -g bun');
+        spinner.succeed(chalk.green('✅ Bun 安装成功!'));
+        return 'bun';
+    } catch (npmError) {
+        console.error(chalk.red('❌ Bun 安装失败:'), npmError);
+        return null;
     }
 }
 
@@ -148,7 +166,7 @@ async function downloadFile(url, outputPath) {
         const updateProgress = () => {
             const percent = Math.floor((downloadedBytes / totalBytes) * 100);
             if (percent > lastProgress) {
-                console.log(chalk.hex('#4ECDC4')(`  🚚🚚🚚 下载进度: ${percent}% (${formatBytes(downloadedBytes)}/${formatBytes(totalBytes)})`));
+                console.log(chalk.hex('#4ECDC4')(`  🚚 下载进度: ${percent}% (${formatBytes(downloadedBytes)}/${formatBytes(totalBytes)})`));
                 lastProgress = percent;
             }
         };
@@ -187,8 +205,203 @@ async function downloadFile(url, outputPath) {
     }
 }
 
+// 自动构建核心包
+async function autoBuildCore(projectPath, packageManager) {
+    console.log(chalk.hex('#FF6B6B').bold('\n🌍 检测到您在外部开发，需要构建 YesImBot 核心包'));
+    console.log(chalk.hex('#FFD166')('⏳ 这可能需要几分钟时间，请耐心等待...'));
+    
+    try {
+        // 1. 构建核心包
+        console.log(chalk.hex('#4ECDC4').bold('\n🚧 步骤 1/3: 构建 YesImBot 核心包'));
+        const { path: corePath, version } = await buildYesImBot(packageManager);
+        console.log(chalk.green(`✅ 核心包构建成功! 位置: ${corePath}, 版本: ${version}`));
+        
+        // 2. 进入项目目录
+        console.log(chalk.hex('#4ECDC4').bold('\n📂 步骤 2/3: 进入项目目录并安装核心包'));
+        process.chdir(projectPath);
+        
+        // 3. 清理项目缓存
+        cleanProjectCache(projectPath);
+        
+        // 4. 安装核心包 - 使用用户选择的包管理器
+        let installCmd;
+        if (packageManager === 'yarn') {
+            installCmd = `yarn add koishi-plugin-yesimbot@file:${corePath} --peer`;
+        } else {
+            installCmd = `bun add koishi-plugin-yesimbot@file:${corePath} --peer --force`;
+        }
+        
+        await runCommand(installCmd, { 
+            hideOutput: true,
+            context: "安装核心包"
+        });
+        console.log(chalk.green('✅ 核心包安装成功!'));
+        
+        // 5. 安装其他依赖
+        console.log(chalk.hex('#4ECDC4').bold('\n🧩 步骤 3/3: 安装项目依赖'));
+        
+        let installDepsCmd;
+        if (packageManager === 'yarn') {
+            installDepsCmd = 'yarn install';
+        } else {
+            installDepsCmd = 'bun install';
+        }
+        
+        await runCommand(installDepsCmd, { 
+            hideOutput: true,
+            context: "安装项目依赖"
+        });
+        console.log(chalk.green('✅ 依赖安装成功!'));
+        
+        // 完成提示
+        let devCommand;
+        if (packageManager === 'yarn') {
+            devCommand = 'yarn dev';
+        } else {
+            devCommand = 'bun dev';
+        }
+        
+        console.log(chalk.hex('#06D6A0').bold('\n🎉 所有准备工作已完成!'));
+        console.log(chalk.hex('#118AB2').bold('\n现在您可以开始开发:'));
+        console.log(chalk.hex('#FFD166').bold(`  cd ${path.basename(projectPath)}`));
+        console.log(chalk.hex('#FFD166').bold(`  ${devCommand}\n`));
+        
+        return true;
+    } catch (buildError) {
+        console.error(chalk.red('\n❌❌ 自动构建过程中出错:'));
+        console.error(buildError);
+        
+        console.log(chalk.hex('#FF6B6B').bold('\n🛠️ 请尝试手动完成以下步骤:'));
+        console.log(`  1. 进入项目目录: ${chalk.hex('#4ECDC4')(`cd ${path.basename(projectPath)}`)}`);
+        console.log(`  2. 清理缓存: ${chalk.hex('#4ECDC4')('rm -rf node_modules')} ${packageManager === 'yarn' ? 'yarn.lock' : 'bun.lockb'}`);
+        
+        let manualInstallCmd;
+        if (packageManager === 'yarn') {
+            manualInstallCmd = `yarn add koishi-plugin-yesimbot@file:${path.join(os.homedir(), '.ybe-build/*/YesImBot-dev/packages/core')} --dev`;
+        } else {
+            manualInstallCmd = `bun add koishi-plugin-yesimbot@file:${path.join(os.homedir(), '.ybe-build/*/YesImBot-dev/packages/core')} --dev --force`;
+        }
+        
+        console.log(`  3. 安装核心包: ${chalk.hex('#4ECDC4')(manualInstallCmd)}`);
+        
+        let manualDepsCmd;
+        if (packageManager === 'yarn') {
+            manualDepsCmd = 'yarn install';
+        } else {
+            manualDepsCmd = 'bun install';
+        }
+        
+        console.log(`  4. 安装依赖: ${chalk.hex('#4ECDC4')(manualDepsCmd)}`);
+        console.log(`  5. 开始开发: ${chalk.hex('#4ECDC4')(devCommand || 'bun dev')}\n`);
+        
+        return false;
+    }
+}
+
+// 清理项目缓存
+function cleanProjectCache(projectPath) {
+    console.log(chalk.hex('#4ECDC4')('🧹 清理项目缓存...'));
+    
+    const pathsToClean = [
+        path.join(projectPath, 'node_modules'),
+        path.join(projectPath, 'bun.lockb'),
+        path.join(projectPath, 'package-lock.json'),
+        path.join(projectPath, 'yarn.lock')
+    ];
+    
+    pathsToClean.forEach(item => {
+        try {
+            if (fs.existsSync(item)) {
+                fs.removeSync(item);
+                console.log(chalk.hex('#4ECDC4')(`  ✅ 已删除: ${path.basename(item)}`));
+            }
+        } catch (error) {
+            console.log(chalk.yellow(`  ⚠️ 清理失败: ${path.basename(item)}`));
+        }
+    });
+}
+
+// 移除所有package.json中的packageManager字段
+function removePackageManagerFields(projectPath) {
+    console.log(chalk.hex('#FF6B6B')('🔧 移除所有package.json中的packageManager字段...'));
+    
+    try {
+        // 查找所有package.json文件
+        const packageJsonFiles = findFiles(projectPath, 'package.json');
+        
+        packageJsonFiles.forEach(file => {
+            try {
+                const content = fs.readFileSync(file, 'utf8');
+                const packageJson = JSON.parse(content);
+                
+                if (packageJson.packageManager) {
+                    delete packageJson.packageManager;
+                    fs.writeFileSync(file, JSON.stringify(packageJson, null, 2));
+                    console.log(chalk.hex('#4ECDC4')(`  ✅ 已移除: ${path.relative(projectPath, file)}`));
+                }
+            } catch (error) {
+                console.log(chalk.yellow(`  ⚠️ 处理失败: ${path.relative(projectPath, file)}`));
+            }
+        });
+        
+        return true;
+    } catch (error) {
+        console.log(chalk.yellow('⚠️ 移除packageManager字段失败:'), error.message);
+        return false;
+    }
+}
+
+// 添加 packageManager 字段以避免 Turbo 警告
+async function addPackageManagerField(projectPath, packageManager) {
+    const packageJsonPath = path.join(projectPath, 'package.json');
+    
+    try {
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        
+        if (!packageJson.packageManager) {
+            let version;
+            if (packageManager === 'yarn') {
+                const { stdout } = await execAsync('yarn --version');
+                version = stdout.trim();
+                packageJson.packageManager = `yarn@1.22.22`;
+            } else {
+                const { stdout } = await execAsync('bun --version');
+                version = stdout.trim();
+                packageJson.packageManager = `bun@${version}`;
+            }
+            
+            fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
+            console.log(chalk.hex('#4ECDC4')(`  ✅ 添加 packageManager 字段: ${packageJson.packageManager}`));
+        }
+    } catch (error) {
+        console.log(chalk.yellow('  ⚠️ 添加 packageManager 字段失败:'), error.message);
+    }
+}
+
+// 递归查找文件
+function findFiles(dir, fileName) {
+    let results = [];
+    const list = fs.readdirSync(dir);
+    
+    list.forEach(file => {
+        file = path.join(dir, file);
+        const stat = fs.statSync(file);
+        
+        if (stat && stat.isDirectory()) {
+            // 递归查找
+            results = results.concat(findFiles(file, fileName));
+        } else {
+            if (path.basename(file) === fileName) {
+                results.push(file);
+            }
+        }
+    });
+    
+    return results;
+}
+
 // 构建核心包
-async function buildYesImBot() {
+async function buildYesImBot(packageManager) {
     console.log(chalk.hex('#FF6B6B').bold('\n🔧🔧 开始构建 YesImBot 核心包...'));
     
     // 创建专用构建目录
@@ -201,7 +414,7 @@ async function buildYesImBot() {
         fs.mkdirSync(tempDir, { recursive: true });
         
         // 下载最新 dev 分支
-        console.log(chalk.hex('#4ECDC4')('⬇⬇️  正在下载 YesImBot dev 分支...'));
+        console.log(chalk.hex('#4ECDC4')('⬇ ️正在下载 YesImBot dev 分支...'));
         
         // 提供中国大陆可用的镜像
         const mirrorUrl = process.env.YBE_MIRROR || 'https://github.akams.cn/https://github.com';
@@ -218,7 +431,7 @@ async function buildYesImBot() {
         console.log(chalk.green(`✅ 下载完成! 文件大小: ${formatBytes(stats.size)}`));
         
         // 解压文件
-        console.log(chalk.hex('#4ECDC4')('📦📦 正在解压文件...'));
+        console.log(chalk.hex('#4ECDC4')('📦 正在解压文件...'));
         const zip = new AdmZip(zipPath);
         const extracted = zip.getEntries().length;
         
@@ -237,12 +450,11 @@ async function buildYesImBot() {
         const projectPath = path.join(tempDir, extractedDir);
         
         // 安装依赖并构建
-        console.log(chalk.hex('#FF6B6B').bold('\n🔨🔨 安装依赖并构建核心包...'));
+        console.log(chalk.hex('#FF6B6B').bold('\n🔨 安装依赖并构建核心包...'));
         
-        // 确保 Bun 已安装
-        const bunInstalled = await ensureBunInstalled();
-        if (!bunInstalled) {
-            throw new Error('Bun 未安装，无法继续构建');
+        // 确保包管理器已安装
+        if (!packageManager) {
+            throw new Error('没有可用的包管理器，无法继续构建');
         }
         
         // 在项目目录中创建 package.json 以解决工作区问题
@@ -261,19 +473,45 @@ async function buildYesImBot() {
             fs.writeFileSync(yarnLockPath, '');
         }
         
+        // 处理Corepack问题 - 直接移除所有package.json中的packageManager字段
+        if (packageManager === 'yarn') {
+            removePackageManagerFields(projectPath);
+        }
+        
         // 安装依赖
-        console.log(chalk.hex('#4ECDC4')('🧩🧩 安装依赖...'));
-        execSync('bun install', { 
-            stdio: 'inherit', 
-            cwd: projectPath 
-        });
+        console.log(chalk.hex('#4ECDC4')('🧩 安装依赖...'));
+        if (packageManager === 'yarn') {
+            await runCommand('yarn install --ignore-engines', { 
+                cwd: projectPath,
+                hideOutput: true,
+                context: "安装项目依赖"
+            });
+        } else {
+            await runCommand('bun install --ignore-engines', { 
+                cwd: projectPath,
+                hideOutput: true,
+                context: "安装项目依赖"
+            });
+        }
+        
+        // 添加 packageManager 字段以避免 Turbo 警告
+        await addPackageManagerField(projectPath, packageManager);
         
         // 构建核心包
-        console.log(chalk.hex('#4ECDC4')('🔨🔨 构建核心包...'));
-        execSync('bun run build', { 
-            stdio: 'inherit', 
-            cwd: projectPath 
-        });
+        console.log(chalk.hex('#4ECDC4')('🔨 构建核心包...'));
+        if (packageManager === 'yarn') {
+            await runCommand('yarn build', { 
+                cwd: projectPath,
+                hideOutput: true,
+                context: "构建核心包"
+            });
+        } else {
+            await runCommand('bun run build', { 
+                cwd: projectPath,
+                hideOutput: true,
+                context: "构建核心包"
+            });
+        }
         
         // 读取核心包版本
         const corePackageJsonPath = path.join(projectPath, 'packages/core/package.json');
@@ -281,13 +519,16 @@ async function buildYesImBot() {
         console.log(chalk.green(`✅ 核心包版本: ${corePackage.version}`));
         
         // 返回核心包路径
-        return path.join(projectPath, 'packages/core');
+        return {
+            path: path.join(projectPath, 'packages/core'),
+            version: corePackage.version
+        };
     } catch (error) {
         console.error(chalk.red('\n❌❌ 构建过程中出错:'));
         console.error(error);
         
         // 提供用户可操作的解决方案
-        console.log(chalk.hex('#FF6B6B').bold('\n🛠🛠🛠️ 可能的解决方案:'));
+        console.log(chalk.hex('#FF6B6B').bold('\n🛠️ 可能的解决方案:'));
         console.log('1. 检查网络连接');
         console.log('2. 尝试设置镜像: export YBE_MIRROR=https://github.akams.cn');
         console.log('3. 手动下载源码:');
@@ -295,57 +536,9 @@ async function buildYesImBot() {
         console.log('4. 手动构建:');
         console.log(chalk.hex('#4ECDC4')(`   unzip ${zipPath} -d ${tempDir}`));
         console.log(chalk.hex('#4ECDC4')(`   cd ${tempDir}/YesImBot-dev`));
-        console.log(chalk.hex('#4ECDC4')(`   bun install && bun run build`));
+        console.log(chalk.hex('#4ECDC4')(`   ${packageManager || 'yarn'} install --ignore-engines && ${packageManager || 'yarn'} run build`));
         
         throw error;
-    }
-}
-
-// 自动构建核心包
-async function autoBuildCore(projectPath) {
-    console.log(chalk.hex('#FF6B6B').bold('\n🌍🌍 检测到您在外部开发，需要构建 YesImBot 核心包'));
-    console.log(chalk.hex('#FFD166')('⏳⏳⏳ 这可能需要几分钟时间，请耐心等待...'));
-    
-    try {
-        // 1. 构建核心包
-        console.log(chalk.hex('#4ECDC4').bold('\n🚧🚧 步骤 1/3: 构建 YesImBot 核心包'));
-        const corePath = await buildYesImBot();
-        console.log(chalk.green(`✅ 核心包构建成功! 位置: ${corePath}`));
-        
-        // 2. 进入项目目录
-        console.log(chalk.hex('#4ECDC4').bold('\n📂📂 步骤 2/3: 进入项目目录并安装核心包'));
-        process.chdir(projectPath);
-        
-        // 3. 安装核心包
-        console.log(chalk.hex('#4ECDC4')('  📦📦 安装核心包...'));
-        execSync(`bun add koishi-plugin-yesimbot@file:${corePath} --dev --force`, { 
-            stdio: 'inherit' 
-        });
-        console.log(chalk.green('✅ 核心包安装成功!'));
-        
-        // 4. 安装其他依赖
-        console.log(chalk.hex('#4ECDC4').bold('\n🧩🧩 步骤 3/3: 安装项目依赖'));
-        execSync('bun install', { stdio: 'inherit' });
-        console.log(chalk.green('✅ 依赖安装成功!'));
-        
-        // 完成提示
-        console.log(chalk.hex('#06D6A0').bold('\n🎉🎉 所有准备工作已完成!'));
-        console.log(chalk.hex('#118AB2').bold('\n现在您可以开始开发:'));
-        console.log(chalk.hex('#FFD166').bold(`  cd ${path.basename(projectPath)}`));
-        console.log(chalk.hex('#FFD166').bold('  bun dev\n'));
-        
-        return true;
-    } catch (buildError) {
-        console.error(chalk.red('\n❌❌ 自动构建过程中出错:'));
-        console.error(buildError);
-        
-        console.log(chalk.hex('#FF6B6B').bold('\n🛠🛠🛠️ 请尝试手动完成以下步骤:'));
-        console.log(`  1. 进入项目目录: ${chalk.hex('#4ECDC4')(`cd ${path.basename(projectPath)}`)}`);
-        console.log(`  2. 安装核心包: ${chalk.hex('#4ECDC4')(`bun add koishi-plugin-yesimbot@file:${path.join(os.homedir(), '.ybe-build/*/YesImBot-dev/packages/core')} --dev --force`)}`);
-        console.log(`  3. 安装依赖: ${chalk.hex('#4ECDC4')('bun install')}`);
-        console.log(`  4. 开始开发: ${chalk.hex('#4ECDC4')('bun dev')}\n`);
-        
-        return false;
     }
 }
 
@@ -376,11 +569,18 @@ function checkProjectLocation(projectPath) {
 
 // 主函数
 async function main() {
-    // 检查 Bun 是否安装
-    const bunInstalled = await ensureBunInstalled();
-    if (!bunInstalled) {
-        console.log(chalk.red('❌❌ Bun 未安装，无法继续操作'));
+    // 检查包管理器是否安装
+    const packageManager = await ensurePackageManagersInstalled();
+    if (!packageManager) {
+        console.log(chalk.red('❌❌ 没有可用的包管理器，无法继续操作'));
         return;
+    }
+    
+    // 如果使用的是Yarn，提示用户
+    if (packageManager === 'yarn') {
+        console.log(chalk.hex('#4ECDC4').bold('🎯 将使用 Yarn 作为包管理器'));
+    } else {
+        console.log(chalk.hex('#4ECDC4').bold('🎯 将使用 Bun 作为包管理器'));
     }
     
     const questions = [
@@ -428,7 +628,7 @@ async function main() {
         }
         
         fs.mkdirSync(projectPath);
-        console.log(chalk.hex('#118AB2')(`\n📁📁 创建项目目录: ${projectName}`));
+        console.log(chalk.hex('#118AB2')(`\n📁 创建项目目录: ${projectName}`));
         
         // 复制模板文件
         await copyTemplate('base', projectPath);
@@ -475,8 +675,10 @@ async function main() {
                 dev: "tsc -w --preserveWatchOutput",
                 lint: "eslint . --ext .ts",
                 clean: "rm -rf lib .turbo tsconfig.tsbuildinfo *.tgz",
-                pack: "bun pm pack",
-                "install-core": `bun add koishi-plugin-yesimbot@file:${path.join(os.homedir(), '.ybe-build/*/YesImBot-dev/packages/core')} --dev --force`
+                pack: packageManager === 'yarn' ? "yarn pack" : "bun pm pack",
+                "install-core": packageManager === 'yarn' ? 
+                    `yarn add koishi-plugin-yesimbot@file:${path.join(os.homedir(), '.ybe-build/*/YesImBot-dev/packages/core')} --dev` :
+                    `bun add koishi-plugin-yesimbot@file:${path.join(os.homedir(), '.ybe-build/*/YesImBot-dev/packages/core')} --dev --force`
             },
             keywords: [
                 "koishi",
@@ -493,24 +695,24 @@ async function main() {
         
         // 根据位置决定是否自动构建
         if (locationInfo.isYesImBotPackages) {
-            console.log(chalk.hex('#06D6A0').bold('\n🌍🌍 检测到您在 YesImBot 项目内部创建扩展'));
+            console.log(chalk.hex('#06D6A0').bold('\n🌍 检测到您在 YesImBot 项目内部创建扩展'));
             console.log(chalk.hex('#118AB2').bold('\n现在您可以开始开发:'));
             console.log(chalk.hex('#FFD166').bold(`  cd ${projectName}`));
-            console.log(chalk.hex('#FFD166').bold('  bun install'));
-            console.log(chalk.hex('#FFD166').bold('  bun dev\n'));
+            console.log(chalk.hex('#FFD166').bold(`  ${packageManager} install`));
+            console.log(chalk.hex('#FFD166').bold(`  ${packageManager} dev\n`));
         } else {
-            // 自动构建核心包并安装依赖
-            const buildSuccess = await autoBuildCore(projectPath);
+            // 自动构建核心包并安装依赖（传入包管理器类型）
+            const buildSuccess = await autoBuildCore(projectPath, packageManager);
             
             if (!buildSuccess) {
                 console.log(chalk.yellow('项目创建完成，但自动构建失败，请按照提示手动完成剩余步骤'));
             }
         }
         
-        console.log(chalk.hex('#FF6B6B').bold('\n💡💡 其他建议:'));
+        console.log(chalk.hex('#FF6B6B').bold('\n💡 其他建议:'));
         console.log('  1. 在 src/index.ts 中添加扩展逻辑');
         console.log('  2. 更新 README.md 中的使用说明');
-        console.log('  3. 使用 bun add <package> 添加额外依赖\n');
+        console.log(`  3. 使用 ${packageManager === 'yarn' ? 'yarn add' : 'bun add'} <package> 添加额外依赖\n`);
         
     } catch (error) {
         console.error(chalk.red('\n创建扩展时出错:'), error);
